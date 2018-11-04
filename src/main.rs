@@ -1,5 +1,5 @@
 use std::collections::{HashMap, BinaryHeap};
-use std::io::{Read, BufReader, stdin, self};
+use std::io::{Read, Write, BufReader, stdin, self};
 
 fn main() -> Result<(), io::Error> {
     let map = parse()?;
@@ -109,5 +109,56 @@ impl From<HashMap<u8, u64>> for Tree {
         }
 
         queue.pop().expect("At least one character")
+    }
+}
+
+/// Write individual bits to a file. Least significant bits first.
+struct BitWriter<W: Write> {
+    buffer: u8,
+    buffer_len: usize,
+    inner: W,
+}
+
+impl<W: Write> BitWriter<W> {
+    const BYTE_BITS: usize = 8;
+
+    fn new(inner: W) -> BitWriter<W> {
+        BitWriter { buffer: 0u8, buffer_len: 0usize, inner }
+    }
+
+    fn write_bits(&mut self, bits: u64, length: usize) -> Result<(), io::Error> {
+        let mut pair = (bits, length);
+        while pair.1 > 0usize {
+            pair = self.consume_bits(pair);
+            self.flush_byte()?;
+        }
+
+        Ok(())
+    }
+
+    fn flush_byte(&mut self) -> Result <(), io::Error> {
+        if self.buffer_len == Self::BYTE_BITS {
+            let byte = [self.buffer];
+            self.inner.write(&byte)?;
+            self.buffer_len = 0;
+        }
+
+        Ok(())
+    }
+
+    fn consume_bits(&mut self, (bits, length): (u64, usize)) -> (u64, usize) {
+        let to_consume = Self::BYTE_BITS.saturating_sub(self.buffer_len).min(length);
+        self.buffer = self.buffer.overflowing_shl(to_consume as u32).0;
+        self.buffer |= (bits as u8) & ((1 << to_consume) - 1);
+        (bits.overflowing_shr(to_consume as u32).0, length - to_consume)
+    }
+}
+
+impl<W: Write> Drop for BitWriter<W> {
+    fn drop(&mut self) {
+        if self.buffer_len > 0 {
+            let byte = [self.buffer];
+            self.inner.write(&byte).expect("Flush final byte");
+        }
     }
 }
